@@ -145,6 +145,7 @@
     box-shadow:0 4px 0 #cdaab9;
   }
   button:hover{transform:translateY(-1px)}
+  button:disabled{opacity:.55;cursor:default;box-shadow:none;transform:none}
   button:active{transform:translateY(2px);box-shadow:0 2px 0 #cdaab9}
   .wide{grid-column:span 3;background:var(--accent);color:white;box-shadow:0 4px 0 #b94169}
   .help{
@@ -201,7 +202,7 @@
     <div class="game-header">
       <div>
         <h1>🍰 Cake Stack</h1>
-        <div class="tag">Pack the bakery box. Complete rows. Avoid the frosting pile-up.</div>
+        <div class="tag">Move with the mouse. Click to rotate. Press Space to drop.</div>
       </div>
       <div class="badge">Tetris-inspired cake puzzle</div>
     </div>
@@ -239,15 +240,14 @@
       <button id="left">◀ Left</button>
       <button id="rotate">↻ Rotate</button>
       <button id="right">Right ▶</button>
-      <button id="down">▼ Down</button>
-      <button id="drop">⬇ Drop</button>
+      <button id="down" disabled>Mouse Mode</button>
+      <button id="drop">Space = Drop</button>
       <button id="pause">Ⅱ Pause</button>
       <button class="wide" id="restart">New Cake Box</button>
     </div>
 
     <div class="help">
-      <b>Keyboard:</b> ← → move, ↓ soft drop, ↑ or Z rotate, Space hard drop, P pause.<br><br>
-      Cake pieces vary in size and shape: slices, bars, squares, wedges, and mini pieces. Frosting colors are randomized for each piece.
+      <b>Mouse:</b> Move left/right over the game board to position the cake. Click the board to rotate it.<br><b>Drop:</b> Press <b>Space</b> to place the cake instantly. The piece will not fall until you drop it. Arrow keys remain available as a fallback; P pauses.<br><br>Cake pieces vary in size and shape: slices, bars, squares, wedges, and mini pieces. Frosting colors are randomized for each piece.
     </div>
   </aside>
 </div>
@@ -287,6 +287,7 @@
   ];
 
   let current, nextPiece, score=0, lines=0, level=1, dropCounter=0, lastTime=0;
+  let mouseActive = false;
   let running=false, paused=false, gameOver=false;
   let best = Number(localStorage.getItem('cakeStackBest') || 0);
   document.getElementById('best').textContent = best;
@@ -551,21 +552,44 @@
   }
 
   function loop(time=0){
-    const dt=time-lastTime; lastTime=time;
-    if(running && !paused && !gameOver){
-      dropCounter += dt;
-      const interval=Math.max(120,800-(level-1)*65);
-      if(dropCounter>interval) drop();
-    }
+    lastTime=time;
+    // Mouse-control mode: pieces stay at the top until the player presses Space.
     drawBoard();
     requestAnimationFrame(loop);
   }
 
+  function movePieceToMouse(clientX){
+    if(paused || gameOver || !running || !current) return;
+    const rect = canvas.getBoundingClientRect();
+    if(clientX < rect.left || clientX > rect.right) return;
+    mouseActive = true;
+    const scaleX = canvas.width / rect.width;
+    const px = (clientX - rect.left) * scaleX;
+    const mouseCol = Math.floor(px / CELL);
+    const targetX = mouseCol - Math.floor(current.matrix[0].length / 2);
+    const maxX = COLS - current.matrix[0].length;
+    const clampedX = Math.max(0, Math.min(maxX, targetX));
+
+    // Move toward the requested column one cell at a time so settled cake still blocks movement.
+    while(current.x < clampedX && !collides(current,1,0)) current.x++;
+    while(current.x > clampedX && !collides(current,-1,0)) current.x--;
+  }
+
+  canvas.addEventListener('mousemove', e => movePieceToMouse(e.clientX));
+  canvas.addEventListener('pointermove', e => {
+    if(e.pointerType !== 'mouse') movePieceToMouse(e.clientX);
+  });
+  canvas.addEventListener('click', e => {
+    if(!running || paused || gameOver) return;
+    e.preventDefault();
+    rotate();
+    movePieceToMouse(e.clientX);
+  });
+
   window.addEventListener('keydown',e=>{
-    if(['ArrowLeft','ArrowRight','ArrowDown','ArrowUp',' ','KeyZ','KeyP'].includes(e.code)) e.preventDefault();
+    if(['ArrowLeft','ArrowRight','ArrowUp',' ','KeyZ','KeyP'].includes(e.code)) e.preventDefault();
     if(e.code==='ArrowLeft') move(-1);
     if(e.code==='ArrowRight') move(1);
-    if(e.code==='ArrowDown') softDrop();
     if(e.code==='ArrowUp' || e.code==='KeyZ') rotate();
     if(e.code==='Space') hardDrop();
     if(e.code==='KeyP') togglePause();
@@ -574,13 +598,13 @@
   document.getElementById('left').onclick=()=>move(-1);
   document.getElementById('right').onclick=()=>move(1);
   document.getElementById('rotate').onclick=rotate;
-  document.getElementById('down').onclick=softDrop;
+  document.getElementById('down').onclick=()=>{};
   document.getElementById('drop').onclick=hardDrop;
   document.getElementById('pause').onclick=togglePause;
   document.getElementById('restart').onclick=reset;
   document.getElementById('overlayBtn').onclick=reset;
 
-  showOverlay('Cake Stack','Drop different-size cake slices, fill complete rows, and keep the bakery box from overflowing.');
+  showOverlay('Cake Stack','Move each cake slice with your mouse, click to rotate it, then press Space to drop it into the bakery box.');
   document.getElementById('overlayBtn').textContent='Start Baking';
   drawBoard();
   requestAnimationFrame(loop);
